@@ -24,6 +24,9 @@ const (
 
 	SPEED_DEFAULT_LARGE_FILE_DEFAULT = SPEED_DEFAULT_LARGE_FILE_DYN_INTL
 
+	SPEED_DEFAULT_UPLOAD_URL     string = "https://speed.cloudflare.com/__up"
+	SPEED_DEFAULT_UPLOAD_URL_DYN string = "DYNAMIC:INTL"
+
 	SLAVE_DEFAULT_PING         = "http://gstatic.com/generate_204"
 	SLAVE_DEFAULT_RETRY   uint = 3
 	SLAVE_DEFAULT_TIMEOUT uint = 5000

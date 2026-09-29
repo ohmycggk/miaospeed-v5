@@ -101,6 +101,26 @@ if [ "$1" = "server" ]; then
             set -- "$@" -serverprivatekey "$MIAOSPEED_SERVERPRIVATEKEY"
         fi
     fi
+    if ! flag_present -upload "$@"; then
+        if is_truthy "$MIAOSPEED_UPLOAD"; then
+            set -- "$@" -upload
+        fi
+    fi
+    if ! flag_present -ipv6 "$@"; then
+        if is_truthy "$MIAOSPEED_IPV6"; then
+            set -- "$@" -ipv6
+        fi
+    fi
+    if ! flag_present -allowip "$@"; then
+        if [ -n "$MIAOSPEED_ALLOWIP" ]; then
+            set -- "$@" -allowip "$MIAOSPEED_ALLOWIP"
+        fi
+    fi
+    if ! flag_present -interface "$@"; then
+        if [ -n "$MIAOSPEED_INTERFACE" ]; then
+            set -- "$@" -interface "$MIAOSPEED_INTERFACE"
+        fi
+    fi
 
     if ! flag_present -bind "$@"; then
         _bind=${MIAOSPEED_BIND:-$BIND}

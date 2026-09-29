@@ -10,6 +10,7 @@ import (
 	"github.com/miaokobot/miaospeed/interfaces"
 	"github.com/miaokobot/miaospeed/preconfigs"
 	"github.com/miaokobot/miaospeed/utils"
+	"github.com/miaokobot/miaospeed/utils/ipfliter"
 	"github.com/miaokobot/miaospeed/utils/structs"
 
 	"github.com/miaokobot/miaospeed/service/matrices"
@@ -17,10 +18,18 @@ import (
 )
 
 type WsHandler struct {
-	Serve func(http.ResponseWriter, *http.Request)
+	Serve    func(http.ResponseWriter, *http.Request)
+	IPFilter *ipfliter.IPFilter
 }
 
 func (wh *WsHandler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+	if wh.IPFilter != nil {
+		ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if !wh.IPFilter.Allowed(ip) {
+			http.Error(rw, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+			return
+		}
+	}
 	if wh.Serve != nil {
 		wh.Serve(rw, r)
 	}
@@ -39,7 +48,16 @@ func InitServer() {
 
 	utils.DWarnf("MiaoSpeed Server | Start Listening, bind=%s", utils.GCFG.Binder)
 
+	var ipFilter *ipfliter.IPFilter
+	if len(utils.GCFG.AllowIPs) > 0 {
+		ipFilter = ipfliter.New(ipfliter.Options{
+			AllowedIPs:     utils.GCFG.AllowIPs,
+			BlockByDefault: true,
+		})
+	}
+
 	wsHandler := WsHandler{
+		IPFilter: ipFilter,
 		Serve: func(rw http.ResponseWriter, r *http.Request) {
 			conn, err := upgrader.Upgrade(rw, r, nil)
 			if err != nil {
@@ -47,6 +65,7 @@ func InitServer() {
 				return
 			}
 			defer conn.Close()
+			utils.DLogf("MiaoServer | new unverified connection | remote=%s", r.RemoteAddr)
 
 			if !utils.GCFG.ValidateWSPath(r.URL.Path) {
 				_ = conn.WriteJSON(&interfaces.SlaveResponse{
@@ -80,7 +99,7 @@ func InitServer() {
 				}
 
 				verified := utils.GCFG.VerifyRequest(&sr)
-				utils.DLogf("MiaoServer Test | Receive Task, name=%s invoker=%v matrices=%v payload=%d verify=%v", sr.Basics.ID, sr.Basics.Invoker, sr.Options.Matrices, len(sr.Nodes), verified)
+				utils.DLogf("MiaoServer Test | Receive Task, name=%s invoker=%v matrices=%v payload=%d verify=%v remote=%s", sr.Basics.ID, sr.Basics.Invoker, sr.Options.Matrices, len(sr.Nodes), verified, r.RemoteAddr)
 
 				// verify token
 				if !verified {
@@ -100,19 +119,21 @@ func InitServer() {
 				}
 
 				// find all matrices
-				matrices := matrices.FindBatchFromEntry(sr.Options.Matrices)
+				mtrx, extra := matrices.FindBatchFromEntry(sr.Options.Matrices, sr.Configs.Scripts)
 
 				// extra macro from the matrices
-				macros := ExtractMacrosFromMatrices(matrices)
+				macros := ExtractMacrosFromMatrices(mtrx)
 
 				// select poll
-				if structs.Contains(macros, interfaces.MacroSpeed) {
+				if structs.Contains(macros, interfaces.MacroSpeed) || structs.Contains(macros, interfaces.MacroSleep) {
 					if utils.GCFG.NoSpeedFlag {
 						conn.WriteJSON(&interfaces.SlaveResponse{
 							Error: "speedtest is disabled on backend",
 						})
 						return
 					}
+					poll = SpeedTaskPoll
+				} else if structs.Contains(macros, interfaces.MacroUploadSpeed) && utils.GCFG.EnableUploadSpeedFlag {
 					poll = SpeedTaskPoll
 				} else {
 					poll = ConnTaskPoll
@@ -121,11 +142,12 @@ func InitServer() {
 
 				// build testing item
 				item := poll.Push((&TestingPollItem{
-					id:       utils.RandomUUID(),
-					name:     sr.Basics.ID,
-					request:  &sr,
-					matrices: sr.Options.Matrices,
-					macros:   macros,
+					id:            utils.RandomUUID(),
+					name:          sr.Basics.ID,
+					request:       &sr,
+					matrices:      sr.Options.Matrices,
+					matricesExtra: extra,
+					macros:        macros,
 					onProcess: func(self *TestingPollItem, idx int, result interfaces.SlaveEntrySlot) {
 						conn.WriteJSON(&interfaces.SlaveResponse{
 							ID:               self.ID(),
@@ -151,6 +173,15 @@ func InitServer() {
 				}).Init())
 
 				batches.Set(item.ID(), true)
+				if sr.Configs.ApiVersion == interfaces.ApiV2 {
+					_ = conn.WriteJSON(&interfaces.SlaveResponse{
+						ID:               item.ID(),
+						MiaoSpeedVersion: utils.VERSION,
+						Progress: &interfaces.SlaveProgress{
+							Queuing: poll.AwaitingCount(),
+						},
+					})
+				}
 			}
 		},
 	}

@@ -3,6 +3,7 @@ package vendors
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/miaokobot/miaospeed/interfaces"
+	"github.com/miaokobot/miaospeed/utils"
 	"github.com/miaokobot/miaospeed/utils/structs"
 )
 
@@ -32,7 +34,9 @@ func RequestUnsafe(ctx context.Context, p interfaces.Vendor, reqOpt *interfaces.
 
 	// check body reader
 	var reader io.Reader = nil
-	if len(reqOpt.Body) > 0 {
+	if reqOpt.Reader != nil {
+		reader = reqOpt.Reader
+	} else if len(reqOpt.Body) > 0 {
 		reader = bytes.NewBuffer(reqOpt.Body)
 	}
 
@@ -51,6 +55,11 @@ func RequestUnsafe(ctx context.Context, p interfaces.Vendor, reqOpt *interfaces.
 	}
 	req = req.WithContext(ctx)
 
+	tlsConf := tls.Config{}
+	if reqOpt.SNI != "" {
+		tlsConf.ServerName = reqOpt.SNI
+	}
+
 	// connect proxy bridge
 	// init params copied from http.DefaultTransport
 	transport := &http.Transport{
@@ -58,16 +67,17 @@ func RequestUnsafe(ctx context.Context, p interfaces.Vendor, reqOpt *interfaces.
 		IdleConnTimeout:       10 * time.Second,
 		TLSHandshakeTimeout:   5 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		TLSClientConfig:       &tlsConf,
 	}
 
-	if p != nil {
-		transport.Dial = func(string, string) (net.Conn, error) {
-			return p.DialTCP(ctx, reqOpt.URL, reqOpt.Network)
+	transport.DialContext = func(reqCtx context.Context, _ string, addr string) (net.Conn, error) {
+		if reqCtx == nil {
+			reqCtx = ctx
 		}
-	} else {
-		transport.Dial = func(string, string) (net.Conn, error) {
-			return net.Dial(reqOpt.Network.String(), reqOpt.URL)
+		if p != nil {
+			return p.DialTCP(reqCtx, formatDialAddressToURL(addr), reqOpt.Network)
 		}
+		return utils.DialContext(reqCtx, reqOpt.Network.String(), addr)
 	}
 
 	// make a list to record all redirects
@@ -93,6 +103,10 @@ func RequestUnsafe(ctx context.Context, p interfaces.Vendor, reqOpt *interfaces.
 	}
 
 	return resp, redirects, nil
+}
+
+func formatDialAddressToURL(addr string) string {
+	return "http://" + addr
 }
 
 func Request(ctx context.Context, p interfaces.Vendor, reqOpt *interfaces.RequestOptions) (duration uint16, bodyBytes []byte, resp *http.Response, redirects []string) {
@@ -136,20 +150,46 @@ func NetCat(ctx context.Context, p interfaces.Vendor, addr string, data []byte, 
 			conn, err = p.DialTCP(ctx, addr, network)
 		}
 	} else {
-		conn, err = net.Dial(network.String(), addr)
+		conn, err = utils.DialContext(ctx, network.String(), addr)
 	}
 
 	if err != nil {
 		return nil, err
 	}
 
+	if conn == nil {
+		return nil, fmt.Errorf("connection is nil")
+	}
+
 	defer conn.Close()
+
+	if ctxTimeout, ok := ctx.Deadline(); ok {
+		if err := conn.SetWriteDeadline(ctxTimeout); err != nil {
+			return nil, fmt.Errorf("failed to set write deadline: %w", err)
+		}
+	}
+
 	if _, err := conn.Write(data); err != nil {
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return nil, fmt.Errorf("write timeout: %w", err)
+		}
 		return nil, err
 	}
 
 	var buf bytes.Buffer
+
+	if ctxTimeout, ok := ctx.Deadline(); ok {
+		if err := conn.SetReadDeadline(ctxTimeout); err != nil {
+			return nil, fmt.Errorf("failed to set read deadline: %w", err)
+		}
+	}
+
 	if _, err := io.Copy(&buf, conn); err != nil {
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return buf.Bytes(), nil
+		}
 		return nil, err
 	}
 
@@ -164,6 +204,12 @@ func NetCatWithRetry(p interfaces.Vendor, retry int, timeoutMillisecond int64, a
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMillisecond)*time.Millisecond)
 		retBody, err = NetCat(ctx, p, addr, data, network)
 		cancel()
+		if err != nil {
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				continue
+			}
+		}
 	}
 
 	return retBody, err

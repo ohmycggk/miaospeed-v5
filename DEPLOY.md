@@ -108,6 +108,10 @@ echo $GITHUB_PAT | docker login ghcr.io -u 你的GitHub用户名 --password-stdi
 | `MIAOSPEED_MMDB` | `-mmdb` | 空 | mmdb 文件路径。值为 `1` 时忽略并打日志 |
 | `MIAOSPEED_SERVERPUBLICKEY` | `-serverpublickey` | 空 | 覆盖内置 TLS 证书的 PEM 路径 |
 | `MIAOSPEED_SERVERPRIVATEKEY` | `-serverprivatekey` | 空 | 覆盖内置 TLS 私钥的 PEM 路径 |
+| `MIAOSPEED_UPLOAD` | `-upload` | 关 | 为 `1` 时，上传测速走速度任务池 |
+| `MIAOSPEED_IPV6` | `-ipv6` | 关 | 为 `1` 时允许解析 IPv6 |
+| `MIAOSPEED_ALLOWIP` | `-allowip` | 空 | 允许连接的 CIDR，逗号分隔。空表示不限制 |
+| `MIAOSPEED_INTERFACE` | `-interface` | 空 | 出站网卡名 |
 | `MIAOSPEED_META` | 无 | 空 | 接受该变量。本镜像已经使用 mihomo，不会再切换二进制 |
 | `TZ` | 无 | `Asia/Shanghai` | 容器时区 |
 
@@ -122,7 +126,12 @@ echo $GITHUB_PAT | docker login ghcr.io -u 你的GitHub用户名 --password-stdi
 | `-speedlimit` | `0` | 测速限速（字节/秒），0 为不限速。环境变量 `MIAOSPEED_SPEEDLIMIT` 的单位是 MB/s |
 | `-pausesecond` | `0` | 每次测速任务后暂停的秒数（限流保护） |
 | `-mtls` | `false` | 启用内嵌自签证书的 TLS（wss） |
-| `-nospeed` | `false` | 拒绝所有测速请求（只做连通性/流媒体测试） |
+| `-nospeed` | `false` | 拒绝下载测速和 `DEBUG_SLEEP` |
+| `-upload` | `false` | 打开后，上传测速走速度任务池；未打开时上传任务仍在连通性任务池执行，且不会真正上传 |
+| `-ipv6` | `false` | 允许 mihomo 解析 IPv6 |
+| `-allowip` | 空 | 允许连接的 CIDR，逗号分隔。留空不限制来源 |
+| `-interface` / `-i` | 空 | 出站网卡名。网卡不存在或没有地址时进程退出 |
+| `-demo` | `false` | 补齐本地监听、随机 token 和随机路径，并打印 `miaospeed://` 配置 |
 | `-mmdb` | 空 | 本地 MaxMind mmdb 路径，多个用英文逗号分隔，设置后 GeoIP 优先走本地库 |
 | `-whitelist` | 空 | bot id 白名单，逗号或 `\|` 分隔，如 `1111,2222` 或 `111111\|22222\|333333` |
 | `-serverpublickey` | 空 | 覆盖内置 TLS 证书的 PEM 文件。读失败、内容为空或与私钥不配对则退出 |

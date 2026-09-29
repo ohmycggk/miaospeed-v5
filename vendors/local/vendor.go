@@ -6,6 +6,7 @@ import (
 	"net"
 
 	"github.com/miaokobot/miaospeed/interfaces"
+	"github.com/miaokobot/miaospeed/utils"
 )
 
 type Local struct {
@@ -31,7 +32,7 @@ func (c *Local) DialTCP(ctx context.Context, url string, network interfaces.Requ
 	if hostname, port, err := urlToMetadata(url); err != nil {
 		return nil, err
 	} else {
-		return net.Dial(network.String(), fmt.Sprintf("%s:%d", hostname, port))
+		return utils.DialContext(ctx, network.String(), fmt.Sprintf("%s:%d", hostname, port))
 	}
 }
 

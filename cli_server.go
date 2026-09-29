@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 
 	"github.com/miaokobot/miaospeed/preconfigs"
@@ -20,12 +23,16 @@ func InitConfigServer() *utils.GlobalConfig {
 	sflag.UintVar(&gcfg.PauseSecond, "pausesecond", 0, "pause such period after each speed job (seconds)")
 	sflag.BoolVar(&gcfg.MiaoKoSignedTLS, "mtls", false, "enable miaoko certs for tls verification")
 	sflag.BoolVar(&gcfg.NoSpeedFlag, "nospeed", false, "decline all speedtest requests")
+	sflag.BoolVar(&gcfg.EnableUploadSpeedFlag, "upload", false, "run upload speed tests on the speed task pool")
+	sflag.BoolVar(&gcfg.EnableIPv6, "ipv6", false, "enable ipv6 support")
 	sflag.StringVar(&gcfg.MaxmindDB, "mmdb", "", "reroute all geoip query to local mmdbs. for example: test.mmdb,testcity.mmdb")
 
 	wsPath := sflag.String("path", "", "websocket path clients must use, for example koipy or /koipy. empty accepts every path")
 	whiteList := sflag.String("whitelist", "", "bot id whitelist, separated by comma or pipe, for example 1111,2222 or 1111|2222")
+	allowIP := sflag.String("allowip", "", "allowed client CIDRs, separated by comma. empty allows every address")
 	pubKeyPath := sflag.String("serverpublickey", "", "PEM file that overrides the embedded TLS certificate")
 	privKeyPath := sflag.String("serverprivatekey", "", "PEM file that overrides the embedded TLS private key")
+	demoMode := sflag.Bool("demo", false, "run server in demo mode and print a miaospeed:// config")
 	parseFlag(sflag)
 
 	gcfg.Path = utils.NormalizeWSPath(*wsPath)
@@ -33,6 +40,25 @@ func InitConfigServer() *utils.GlobalConfig {
 		utils.DWarnf("MiaoSpeed Server | Using a custom websocket path: %s", gcfg.Path)
 	}
 	gcfg.WhiteList = utils.SplitWhiteList(*whiteList)
+	gcfg.AllowIPs = utils.SplitWhiteList(*allowIP)
+
+	if *demoMode {
+		if gcfg.Binder == "" {
+			gcfg.Binder = "127.0.0.1:8765"
+		}
+		if gcfg.Token == "" {
+			gcfg.Token = utils.RandomUUID()
+		}
+		gcfg.MiaoKoSignedTLS = true
+		gcfg.EnableIPv6 = true
+		if gcfg.Path == "" {
+			gcfg.Path = "/" + utils.RandomUUID()
+		}
+		configBytes, _ := json.Marshal(gcfg)
+		fmt.Println("===============================\tCopy it to your client\t================================")
+		fmt.Println("miaospeed://" + base64.StdEncoding.EncodeToString(configBytes))
+		fmt.Println("===============================\tEnd of line\t================================")
+	}
 
 	pubPEM, keyPEM, err := utils.ReadServerCertificatePair(*pubKeyPath, *privKeyPath)
 	if err != nil {

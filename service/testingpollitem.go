@@ -7,6 +7,7 @@ import (
 	"github.com/miaokobot/miaospeed/interfaces"
 	"github.com/miaokobot/miaospeed/service/macros"
 	"github.com/miaokobot/miaospeed/service/macros/invalid"
+	mscript "github.com/miaokobot/miaospeed/service/macros/script"
 	"github.com/miaokobot/miaospeed/service/matrices"
 	"github.com/miaokobot/miaospeed/service/taskpoll"
 	"github.com/miaokobot/miaospeed/utils"
@@ -18,10 +19,11 @@ type TestingPollItem struct {
 	id   string
 	name string
 
-	request  *interfaces.SlaveRequest
-	matrices []interfaces.SlaveRequestMatrixEntry
-	macros   []interfaces.SlaveRequestMacroType
-	results  *structs.AsyncArr[interfaces.SlaveEntrySlot]
+	request       *interfaces.SlaveRequest
+	matrices      []interfaces.SlaveRequestMatrixEntry
+	matricesExtra map[string]interfaces.SlaveRequestMatrixEntry
+	macros        []interfaces.SlaveRequestMacroType
+	results       *structs.AsyncArr[interfaces.SlaveEntrySlot]
 
 	onProcess func(self *TestingPollItem, idx int, result interfaces.SlaveEntrySlot)
 	onExit    func(self *TestingPollItem, exitCode taskpoll.TaskPollExitCode)
@@ -68,6 +70,9 @@ func (tpi *TestingPollItem) Yield(idx int, tpc *taskpoll.TaskPollController) {
 
 	node := tpi.request.Nodes[idx]
 	vendor := vendors.Find(tpi.request.Vendor).Build(node.Name, node.Payload)
+	if dnsSetter, ok := vendor.(interface{ SetDNSServers([]string) }); ok {
+		dnsSetter.SetDNSServers(tpi.request.Configs.DNSServers)
+	}
 	result.ProxyInfo = vendor.ProxyInfo()
 	macroMap := structs.NewAsyncMap[interfaces.SlaveRequestMacroType, interfaces.SlaveRequestMacro]()
 
@@ -89,6 +94,26 @@ func (tpi *TestingPollItem) Yield(idx int, tpc *taskpoll.TaskPollController) {
 
 	result.Matrices = structs.Map(tpi.matrices, func(me interfaces.SlaveRequestMatrixEntry) interfaces.MatrixResponse {
 		m := matrices.Find(me.Type)
+		if m.Type() == interfaces.MatrixScriptTest {
+			if entry, ok := tpi.matricesExtra[me.Params]; ok {
+				extraMatrix := matrices.Find(entry.Type)
+				macro := macroMap.MustGet(extraMatrix.MacroJob())
+				if macro == nil {
+					macro = &invalid.Invalid{}
+				}
+				extraMatrix.Extract(entry, macro)
+
+				scriptResult := interfaces.ScriptResult{}
+				if s := structs.Find(tpi.request.Configs.Scripts, func(s interfaces.Script) bool { return s.ID == me.Params }); s != nil {
+					scriptResult = mscript.FormatExtraMatriceScriptResult(s.Content, extraMatrix)
+				}
+
+				return interfaces.MatrixResponse{
+					Type:    interfaces.MatrixScriptTest,
+					Payload: utils.ToJSON(&interfaces.ScriptTestDS{Key: me.Params, ScriptResult: scriptResult}),
+				}
+			}
+		}
 		macro := macroMap.MustGet(m.MacroJob())
 		if macro == nil {
 			macro = &invalid.Invalid{}

@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -18,12 +20,61 @@ import (
 	"github.com/miaokobot/miaospeed/utils/structs"
 )
 
-func pingViaTrace(ctx context.Context, p interfaces.Vendor, url string) (uint16, uint16, error) {
+type timeoutReader struct {
+	r       *bufio.Reader
+	timeout time.Time
+}
+
+func durationToMillisU16(d time.Duration) uint16 {
+	if d <= 0 {
+		return 0
+	}
+
+	ms := d.Milliseconds()
+	// Avoid reporting 0ms for successful sub-millisecond probes.
+	if ms == 0 {
+		ms = 1
+	}
+
+	const maxUint16Millis = int64(^uint16(0))
+	if ms > maxUint16Millis {
+		return ^uint16(0)
+	}
+	return uint16(ms)
+}
+
+func elapsedMillisU16(start, end time.Time) uint16 {
+	if start.IsZero() || end.IsZero() {
+		return 0
+	}
+	return durationToMillisU16(end.Sub(start))
+}
+
+func (tr *timeoutReader) Read(p []byte) (n int, err error) {
+	if time.Now().After(tr.timeout) {
+		return 0, errors.New("read timeout")
+	}
+	return tr.r.Read(p)
+}
+
+func saferParseHTTPStatus(reader *bufio.Reader) (int, error) {
+	timeoutReader := &timeoutReader{reader, time.Now().Add(5 * time.Second)}
+	limitedReader := io.LimitReader(timeoutReader, 1024*1024)
+
+	resp, err := http.ReadResponse(bufio.NewReader(limitedReader), nil)
+	if err != nil {
+		return 0, err
+	}
+	//defer resp.Body.Close()
+
+	return resp.StatusCode, nil
+}
+
+func pingViaTrace(ctx context.Context, p interfaces.Vendor, url string) (uint16, uint16, int, error) {
 	transport := &http.Transport{
-		Dial: func(string, string) (net.Conn, error) {
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
 			return p.DialTCP(ctx, url, interfaces.ROptionsTCP)
 		},
-		// from http.DefaultTransport
 		MaxIdleConns:          100,
 		IdleConnTimeout:       3 * time.Second,
 		TLSHandshakeTimeout:   3 * time.Second,
@@ -31,7 +82,7 @@ func pingViaTrace(ctx context.Context, p interfaces.Vendor, url string) (uint16,
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: false,
 			// for version prior to tls1.3, the handshake will take 2-RTTs,
-			// plus, majority server supports tls1.3, so we set a limit here
+			// plus, majority server supports tls1.3, so we set a limit here.
 			MinVersion: tls.VersionTLS13,
 			RootCAs:    preconfigs.MiaokoRootCAPrepare(),
 		},
@@ -39,128 +90,194 @@ func pingViaTrace(ctx context.Context, p interfaces.Vendor, url string) (uint16,
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 
-	tlsStart := int64(0)
-	tlsEnd := int64(0)
-	writeStart := int64(0)
-	writeEnd := int64(0)
+	var tlsStart, tlsEnd, writeStart, writeEnd time.Time
 	trace := &httptrace.ClientTrace{
-		TLSHandshakeStart: func() {
-			tlsStart = time.Now().UnixMilli()
-		},
-		TLSHandshakeDone: func(cs tls.ConnectionState, err error) {
-			tlsEnd = time.Now().UnixMilli()
-			if err != nil {
-				tlsEnd = 0
-			}
-		},
-		GotFirstResponseByte: func() {
-			writeEnd = time.Now().UnixMilli()
-		},
-		WroteHeaders: func() {
-			writeStart = time.Now().UnixMilli()
-		},
+		TLSHandshakeStart:    func() { tlsStart = time.Now() },
+		TLSHandshakeDone:     func(_ tls.ConnectionState, err error) { tlsEnd = time.Now() },
+		GotFirstResponseByte: func() { writeEnd = time.Now() },
+		WroteHeaders:         func() { writeStart = time.Now() },
 	}
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 
-	connStart := time.Now().UnixMilli()
-	if resp, err := transport.RoundTrip(req); err != nil {
-		return 0, 0, err
-	} else {
-		connEnd := time.Now().UnixMilli()
-		utils.DBlackhole(!strings.HasPrefix(url, "https:"), connEnd-writeEnd, writeEnd-tlsEnd, tlsEnd-tlsStart, tlsStart-connStart)
-		if !strings.HasPrefix(url, "https:") {
-			return uint16(writeStart - connStart), uint16(writeEnd - connStart), nil
-		}
-		if resp.TLS != nil && resp.TLS.HandshakeComplete {
-			// use payload rtt
-			return uint16(writeEnd - tlsEnd), uint16(writeEnd - connStart), nil
-			// return uint16(tlsEnd - tlsStart), uint16(writeEnd - connStart), nil
-		}
-		return 0, 0, fmt.Errorf("cannot extract payload from response")
+	connStart := time.Now()
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		return 0, 0, 0, err
 	}
+	defer resp.Body.Close()
+
+	connEnd := time.Now()
+	utils.DBlackhole(
+		!strings.HasPrefix(url, "https:"),
+		elapsedMillisU16(writeEnd, connEnd),
+		elapsedMillisU16(tlsEnd, writeEnd),
+		elapsedMillisU16(tlsStart, tlsEnd),
+		elapsedMillisU16(connStart, tlsStart),
+	)
+
+	if !strings.HasPrefix(url, "https:") {
+		return elapsedMillisU16(connStart, writeStart), elapsedMillisU16(connStart, writeEnd), resp.StatusCode, nil
+	}
+	if resp.TLS != nil && resp.TLS.HandshakeComplete {
+		return elapsedMillisU16(tlsEnd, writeEnd), elapsedMillisU16(connStart, writeEnd), resp.StatusCode, nil
+	}
+	return 0, 0, 0, fmt.Errorf("cannot extract payload from response")
 }
 
-func pingViaNetCat(ctx context.Context, p interfaces.Vendor, url string) (uint16, uint16, error) {
+func pingViaNetCat(ctx context.Context, p interfaces.Vendor, url string) (uint16, uint16, int, error) {
 	purl, _ := urllib.Parse(url)
-	data := purl.EscapedPath()
+	path := purl.EscapedPath()
 	if purl.RawQuery != "" {
-		data += "?" + purl.Query().Encode()
+		path += "?" + purl.Query().Encode()
 	}
+	payload := structs.X(preconfigs.NETCAT_HTTP_PAYLOAD, path, purl.Hostname(), utils.VERSION)
 
-	data = structs.X(preconfigs.NETCAT_HTTP_PAYLOAD, data, purl.Hostname(), utils.VERSION)
-
-	connStart := time.Now().UnixMilli()
+	connStart := time.Now()
 	conn, err := p.DialTCP(ctx, url, interfaces.ROptionsTCP)
-	if err != nil || conn == nil {
-		return 0, 0, fmt.Errorf("cannot dial remote address")
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("dial failed: %w", err)
 	}
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add(time.Second * 6))
-	c := bufio.NewReader(conn)
-
-	// prewrite to ensure tcp conn is established
-	// httpStartReq1 := time.Now().UnixMilli()
-	if _, err := conn.Write([]byte(data)); err != nil {
-		return 0, 0, fmt.Errorf("cannot write payload to remote")
+	_ = conn.SetDeadline(time.Now().Add(6 * time.Second))
+	reader := bufio.NewReader(conn)
+	tcpStart := time.Now()
+	if _, err := conn.Write([]byte(payload)); err != nil {
+		return 0, 0, 0, fmt.Errorf("write failed 1: %w", err)
 	}
 
-	c.ReadLine()
-	for c.Buffered() > 0 {
-		c.ReadLine()
+	if _, err := reader.Peek(1); err != nil {
+		return 0, 0, 0, fmt.Errorf("read failed 1: %w", err)
+	}
+	firstRTT := durationToMillisU16(time.Since(tcpStart))
+	connRTT := durationToMillisU16(time.Since(connStart))
+	firstStatusCode, err := saferParseHTTPStatus(reader)
+	if err != nil {
+		return firstRTT, connRTT, 0, nil
 	}
 
-	httpStartReq2 := time.Now().UnixMilli()
-	if _, err := conn.Write([]byte(data)); err != nil {
-		return 0, 0, fmt.Errorf("cannot write payload to remote")
+	//_, _, _ = reader.ReadLine()
+	for reader.Buffered() > 0 {
+		_, _, _ = reader.ReadLine()
 	}
 
-	c.ReadLine()
-	for c.Buffered() > 0 {
-		c.ReadLine()
+	tcpStart = time.Now()
+	if _, err := conn.Write([]byte(payload)); err != nil {
+		return firstRTT, connRTT, firstStatusCode, nil
 	}
-	httpEnd := time.Now().UnixMilli()
+	if _, err := reader.Peek(1); err != nil {
+		return firstRTT, connRTT, firstStatusCode, nil
+	}
 
-	return uint16(httpEnd - httpStartReq2), uint16(httpStartReq2 - connStart), nil
+	// resend the request to get the RTT of the second request
+	secondRTT := durationToMillisU16(time.Since(tcpStart))
+	secondStatusCode, err := saferParseHTTPStatus(reader)
+	if err != nil {
+		return firstRTT, connRTT, firstStatusCode, nil
+	}
+
+	return secondRTT, connRTT, secondStatusCode, nil
 }
 
-func ping(p interfaces.Vendor, url string, withAvg uint16, maxAttempt int, timeout uint) (uint16, uint16) {
+func ping(obj *Ping, p interfaces.Vendor, url string, withAvg uint16, timeout uint) {
+	var (
+		rttTimes      []uint16
+		requestTimes  []uint16
+		statusCodes   []int
+		failedAttempt uint
+	)
+
 	if p == nil {
-		return 0, 0
+		initFailedPing(obj)
+		return
 	}
-
-	failNum := 0
-	totalMS := []uint16{}
-	totalMSRTT := []uint16{}
-
-	if withAvg < 1 || withAvg > uint16(maxAttempt) {
+	if withAvg == 0 || withAvg > 16 {
 		withAvg = 1
 	}
 
-	for failNum+len(totalMS) < maxAttempt && len(totalMS) < int(withAvg) && maxAttempt-failNum >= int(withAvg) {
+	for i := 0; i < int(withAvg); i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Millisecond)
-		delayRTT, delay := uint16(0), uint16(0)
-		if strings.HasPrefix(url, "https:") {
-			delayRTT, delay, _ = pingViaTrace(ctx, p, url)
-		} else {
-			delayRTT, delay, _ = pingViaNetCat(ctx, p, url)
-		}
-		if delayRTT > 0 {
-			totalMSRTT = append(totalMSRTT, delayRTT)
-			totalMS = append(totalMS, delay)
-		} else {
-			failNum += 1
-		}
+		rtt, req, code, err := performPing(ctx, p, url)
 		cancel()
+
+		if err != nil {
+			//utils.DLogf("ping failed: %v", err)
+			failedAttempt++
+			continue
+		}
+
+		updatePingMetrics(obj, rtt, req)
+		rttTimes = append(rttTimes, rtt)
+		requestTimes = append(requestTimes, req)
+		statusCodes = append(statusCodes, code)
 	}
 
-	resultRTT, result := uint16(0), uint16(0)
-	if len(totalMSRTT) >= int(withAvg) {
-		resultRTT = computeAvgOfPing(totalMSRTT)
-		result = computeAvgOfPing(totalMS)
-	}
-	return resultRTT, result
+	calculateFinalMetrics(obj, rttTimes, requestTimes, statusCodes, failedAttempt, withAvg)
 }
+
+func initFailedPing(obj *Ping) {
+	obj.RTT = 0
+	obj.Request = 0
+	obj.PacketLoss = 100.0
+	obj.Jitter = 0
+	obj.RTTList = nil
+	obj.RequestList = nil
+	obj.StatusCodes = nil
+}
+
+func performPing(ctx context.Context, p interfaces.Vendor, url string) (uint16, uint16, int, error) {
+	if strings.HasPrefix(url, "https:") {
+		return pingViaTrace(ctx, p, url)
+	}
+	return pingViaNetCat(ctx, p, url)
+}
+
+func updatePingMetrics(obj *Ping, rtt, req uint16) {
+	obj.MaxRTT = structs.Max(obj.MaxRTT, rtt)
+	obj.MaxRequest = structs.Max(obj.MaxRequest, req)
+}
+
+func calculateFinalMetrics(obj *Ping, rtts, reqs []uint16, codes []int, failed uint, total uint16) {
+	obj.PacketLoss = float64(failed) / float64(total) * 100
+	obj.StatusCodes = codes
+
+	if len(rtts) > 0 {
+		obj.RTT = calcAvgPing(rtts)
+		obj.Jitter = calcStdDevPing(rtts)
+		obj.RTTSD = obj.Jitter
+		obj.RTTList = rtts
+	}
+	if len(reqs) > 0 {
+		obj.Request = calcAvgPing(reqs)
+		obj.RequestSD = calcStdDevPing(reqs)
+		obj.RequestList = reqs
+	}
+}
+
+//func calcAvgPing(values []uint16) uint16 {
+//	if len(values) == 0 {
+//		return 0
+//	}
+//	var sum uint32
+//	for _, v := range values {
+//		sum += uint32(v)
+//	}
+//	return uint16(sum / uint32(len(values)))
+//}
+//
+//func calcStdDevPing(values []uint16) uint16 {
+//	if len(values) < 2 {
+//		return 0
+//	}
+//	mean := calcAvgPing(values)
+//	var variance float64
+//	for _, v := range values {
+//		diff := float64(int32(v) - int32(mean))
+//		variance += diff * diff
+//	}
+//	variance /= float64(len(values) - 1)
+//	return uint16(variance)
+//}

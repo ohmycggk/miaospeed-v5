@@ -5,8 +5,10 @@ import (
 	"github.com/miaokobot/miaospeed/utils/structs"
 
 	"github.com/miaokobot/miaospeed/service/macros/geo"
+	"github.com/miaokobot/miaospeed/service/macros/hijack"
 	"github.com/miaokobot/miaospeed/service/macros/ping"
 	"github.com/miaokobot/miaospeed/service/macros/script"
+	"github.com/miaokobot/miaospeed/service/macros/sleep"
 	"github.com/miaokobot/miaospeed/service/macros/speed"
 	"github.com/miaokobot/miaospeed/service/macros/udp"
 
@@ -28,6 +30,15 @@ var registeredList = map[interfaces.SlaveRequestMacroType]func() interfaces.Slav
 	},
 	interfaces.MacroScript: func() interfaces.SlaveRequestMacro {
 		return &script.Script{}
+	},
+	interfaces.MacroSleep: func() interfaces.SlaveRequestMacro {
+		return &sleep.Sleep{}
+	},
+	interfaces.MacroUploadSpeed: func() interfaces.SlaveRequestMacro {
+		return &speed.UploadSpeed{}
+	},
+	interfaces.MacroHijack: func() interfaces.SlaveRequestMacro {
+		return &hijack.Hijack{}
 	},
 }
 

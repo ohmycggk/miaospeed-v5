@@ -19,7 +19,21 @@ type SlaveRequestConfigs struct {
 
 	TaskTimeout uint     `yaml:"-" fw:"readonly"`
 	Scripts     []Script `yaml:"-" fw:"readonly"`
+
+	// ApiVersion selects the signed request shape.
+	// 0 and 1 keep the original field set. 2 adds ApiVersion. 3 also adds upload fields.
+	ApiVersion      int    `yaml:"apiVersion,omitempty" cf:"name=🧬API版本，用于兼容Miaoko以及其他客户端"`
+	UploadURL       string `yaml:"uploadURL,omitempty" cf:"name=📃 上行测速文件"`
+	UploadDuration  int64  `yaml:"uploadDuration,omitempty" cf:"name=⏱️ 上行测速时长 (单位: 秒)"`
+	UploadThreading uint   `yaml:"uploadThreading,omitempty" cf:"name=🧶 上行测速线程数"`
 }
+
+const (
+	ApiV0 = iota
+	ApiV1
+	ApiV2
+	ApiV3
+)
 
 func (src *SlaveRequestConfigs) DescriptionText() string {
 	hint := structs.X("案例:\ndownloadDuration: 取值范围 [1,30]\ndownloadThreading: 取值范围 [1,8]\ntaskThreading: 取值范围 [1,32]\ntaskRetry: 取值范围 [1,10]\n\n当前:\n")
@@ -45,6 +59,11 @@ func (src *SlaveRequestConfigs) Clone() *SlaveRequestConfigs {
 
 		TaskTimeout: src.TaskTimeout,
 		Scripts:     src.Scripts,
+
+		ApiVersion:      src.ApiVersion,
+		UploadURL:       src.UploadURL,
+		UploadDuration:  src.UploadDuration,
+		UploadThreading: src.UploadThreading,
 	}
 }
 
@@ -84,6 +103,19 @@ func (src *SlaveRequestConfigs) Merge(from *SlaveRequestConfigs) *SlaveRequestCo
 	}
 	if from.Scripts != nil {
 		ret.Scripts = from.Scripts
+	}
+
+	if from.ApiVersion != 0 {
+		ret.ApiVersion = from.ApiVersion
+	}
+	if from.UploadURL != "" {
+		ret.UploadURL = from.UploadURL
+	}
+	if from.UploadDuration != 0 {
+		ret.UploadDuration = from.UploadDuration
+	}
+	if from.UploadThreading != 0 {
+		ret.UploadThreading = from.UploadThreading
 	}
 
 	return ret
@@ -127,6 +159,16 @@ func (cfg *SlaveRequestConfigs) Check() *SlaveRequestConfigs {
 	}
 	if cfg.Scripts == nil {
 		cfg.Scripts = make([]Script, 0)
+	}
+
+	if cfg.UploadURL == "" {
+		cfg.UploadURL = preconfigs.SPEED_DEFAULT_UPLOAD_URL
+	}
+	if cfg.UploadDuration < 1 || cfg.UploadDuration > 30 {
+		cfg.UploadDuration = preconfigs.SPEED_DEFAULT_DURATION
+	}
+	if cfg.UploadThreading < 1 || cfg.UploadThreading > 32 {
+		cfg.UploadThreading = preconfigs.SPEED_DEFAULT_THREADING
 	}
 
 	return cfg

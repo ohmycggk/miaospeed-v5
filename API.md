@@ -114,9 +114,13 @@ password: pass
 | `PingAverageOver` | uint16 | `1` | 1–16 | Ping 多次取均值 |
 | `PingAddress` | string | `http://gstatic.com/generate_204` | - | Ping 目标 URL |
 | `TaskRetry` | uint | `3` | 1–10 | 失败重试次数 |
-| `DNSServers` | []string | `[]` | - | 自定义 DNS（供部分宏使用） |
+| `DNSServers` | []string | `[]` | - | 自定义 DNS。支持 `ip:53`、`https://` DoH，以及 `mihomo://` 加上 base64 的 mihomo DNS 配置。解析失败时回退系统解析 |
 | `TaskTimeout` | uint | `5000` | 10–10000 毫秒 | 单任务超时 |
 | `Scripts` | []Script | `[]` | - | 自定义脚本，见 §4.4 |
+| `ApiVersion` | int | `0` | 0–3 | 签名结构版本。`0`/`1` 与旧客户端相同，不包含本字段和上行字段；`2` 带上 `ApiVersion`；`3` 再带上上行字段 |
+| `UploadURL` | string | `https://speed.cloudflare.com/__up` | - | 上行测速地址。`DYNAMIC:INTL` 使用默认地址。仅 `ApiVersion=3` 且服务端打开 `-upload` 时实际测速 |
+| `UploadDuration` | int | `3` | 1–30 秒 | 上行测速时长 |
+| `UploadThreading` | uint | `1` | 1–32 | 上行测速线程数 |
 
 越界取值会被后端重置为默认值。
 
@@ -130,15 +134,29 @@ password: pass
 | --- | --- | --- | --- |
 | `TEST_PING_CONN` | PING | `{"Value": 233}` | HTTP 建连耗时，毫秒 |
 | `TEST_PING_RTT` | PING | `{"Value": 233}` | TLS/RTT 耗时，毫秒 |
+| `TEST_PING_MAX_RTT` | PING | `{"Value": 300}` | 多次 Ping 中的最大 RTT，毫秒 |
+| `TEST_PING_TOTAL_CONN` | PING | `{"Values":[233,240]}` | 每次 HTTP 建连耗时 |
+| `TEST_PING_TOTAL_RTT` | PING | `{"Values":[180,190]}` | 每次 RTT |
+| `TEST_PING_SD_CONN` | PING | `{"Value": 12.5}` | HTTP 建连耗时标准差 |
+| `TEST_PING_SD_RTT` | PING | `{"Value": 8.2}` | RTT 标准差 |
+| `TEST_HTTP_CODE` | PING | `{"Values":[204,204]}` | 每次 Ping 的 HTTP 状态码 |
+| `TEST_PING_PACKET_LOSS` | PING | `{"Value": 0}` | 丢包率，百分比 |
 | `UDP_TYPE` | UDP | `{"Value": "FullCone"}` | NAT 类型：`FullCone` / `RestrictedCone` / `PortRestrictedCone` / `Symmetric` / `SymmetricFirewall` / `Unknown` |
-| `SPEED_AVERAGE` | SPEED | `{"Value": 12345678}` | 平均速度，**字节/秒** |
-| `SPEED_MAX` | SPEED | `{"Value": 23456789}` | 峰值速度（单秒最大值），字节/秒 |
-| `SPEED_PER_SECOND` | SPEED | `{"Max":..,"Average":..,"Speeds":[..]}` | 每秒速度序列，字节/秒 |
+| `SPEED_AVERAGE` | SPEED | `{"Value": 12345678}` | 平均下载速度，**字节/秒** |
+| `SPEED_MAX` | SPEED | `{"Value": 23456789}` | 下载峰值速度（单秒最大值），字节/秒 |
+| `SPEED_PER_SECOND` | SPEED | `{"Max":..,"Average":..,"Speeds":[..]}` | 每秒下载速度序列，字节/秒 |
+| `USPEED_AVERAGE` | USPEED | `{"Value": 12345678}` | 平均上传速度，字节/秒 |
+| `USPEED_MAX` | USPEED | `{"Value": 23456789}` | 上传峰值速度，字节/秒 |
+| `USPEED_PER_SECOND` | USPEED | `{"Max":..,"Average":..,"Speeds":[..]}` | 每秒上传速度序列，字节/秒 |
 | `GEOIP_INBOUND` | GEO | MultiStacks（见 §4.2） | 入口 GeoIP |
 | `GEOIP_OUTBOUND` | GEO | MultiStacks（见 §4.2） | 出口 GeoIP |
+| `TEST_HIJACK_DETECTION` | HIJACK | `{"SpeedIP":"1.1.1.1","RealIP":"1.1.1.1"}` | 用不同 SNI 访问 Google 拦截页，比较看到的 IP |
+| `DEBUG_SLEEP` | SLEEP | `{"Value":"slept for 10s seconds"}` | 调试用，固定睡眠 10 秒。与下载测速一样受 `-nospeed` 限制 |
 | `TEST_SCRIPT` | SCRIPT | `{"Key":"<脚本ID>","Text":"...","Color":"...","Background":"...","TimeElapsed":123}` | 自定义脚本结果 |
 
-同一宏只执行一次：例如同时请求 `TEST_PING_CONN` 与 `TEST_PING_RTT`，只跑一轮 Ping，两个矩阵各自提取结果。
+同一宏只执行一次：例如同时请求 `TEST_PING_CONN` 与 `TEST_PING_RTT`，只跑一轮 Ping，两个矩阵各自提取结果。上传矩阵同理，只跑一轮 `USPEED`。
+
+脚本可以声明 `MS_MATRIX_ENTRY = {name: "TEST_PING_MAX_RTT", params: ""}`。此时 `TEST_SCRIPT` 会改跑该矩阵，并用脚本里的 `matrice_formatter(matrix)` 或 `matrix_extract(matrix)` 把结果格式化成脚本文本。这样旧客户端仍用 `TEST_SCRIPT` 就能取到它不认识的矩阵。
 
 ### 4.2 GeoIP 的 MultiStacks 结构
 
@@ -169,7 +187,7 @@ GeoIP 查询优先走 `-mmdb` 本地库；未配置时使用内置脚本查询 i
 
 脚本沙箱内置函数：
 
-- `fetch(url, params)` — HTTP 请求（经被测节点）。`params`：`method`、`body`、`headers`、`cookies`、`timeout`(ms)、`retry`、`noRedir`、`useHost`(true=不走代理)。返回 `{status, statusCode, headers, cookies, body, redirects, url, method}` 或 `null`。
+- `fetch(url, params)` — HTTP 请求（经被测节点）。`params`：`method`、`body`、`headers`、`cookies`、`timeout`(ms)、`retry`、`noRedir`、`useHost`(true=不走代理)、`sni`（覆盖 TLS Server Name）。返回 `{status, statusCode, headers, cookies, body, redirects, url, method}` 或 `null`。跟随重定向时，后续连接按重定向后的地址经代理拨号。
 - `netcat(addr, data, params)` — 原始 TCP/UDP 收发。
 - `proxy` — 当前节点信息 `{Name, Address, Type}`。
 - 预定义工具：`get(obj, "a.b", default)`、`safeParse` / `safeStringify`、`println`。

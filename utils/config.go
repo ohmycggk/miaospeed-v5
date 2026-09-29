@@ -11,15 +11,19 @@ import (
 )
 
 type GlobalConfig struct {
-	Token            string
-	Binder           string
-	WhiteList        []string
-	SpeedLimit       uint64
-	PauseSecond      uint
-	ConnTaskTreading uint
-	MiaoKoSignedTLS  bool
-	NoSpeedFlag      bool
-	MaxmindDB        string
+	Token                 string
+	Binder                string
+	NetworkInterface      string
+	WhiteList             []string
+	AllowIPs              []string
+	SpeedLimit            uint64
+	PauseSecond           uint
+	ConnTaskTreading      uint
+	MiaoKoSignedTLS       bool
+	NoSpeedFlag           bool
+	EnableUploadSpeedFlag bool
+	EnableIPv6            bool
+	MaxmindDB             string
 	// Path is the required websocket path. Empty means every path is accepted.
 	Path string
 }

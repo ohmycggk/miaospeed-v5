@@ -12,9 +12,22 @@ const (
 	MatrixInboundGeoIP  SlaveRequestMatrixType = "GEOIP_INBOUND"
 	MatrixOutboundGeoIP SlaveRequestMatrixType = "GEOIP_OUTBOUND"
 
-	MatrixScriptTest SlaveRequestMatrixType = "TEST_SCRIPT"
-	MatrixHTTPPing   SlaveRequestMatrixType = "TEST_PING_CONN"
-	MatrixRTTPing    SlaveRequestMatrixType = "TEST_PING_RTT"
+	MatrixAverageUploadSpeed   SlaveRequestMatrixType = "USPEED_AVERAGE"
+	MatrixMaxUploadSpeed       SlaveRequestMatrixType = "USPEED_MAX"
+	MatrixPerSecondUploadSpeed SlaveRequestMatrixType = "USPEED_PER_SECOND"
+
+	MatrixScriptTest    SlaveRequestMatrixType = "TEST_SCRIPT"
+	MatrixHTTPPing      SlaveRequestMatrixType = "TEST_PING_CONN"
+	MatrixRTTPing       SlaveRequestMatrixType = "TEST_PING_RTT"
+	MatrixMAXRTTPing    SlaveRequestMatrixType = "TEST_PING_MAX_RTT"
+	MatrixTotalHTTPPing SlaveRequestMatrixType = "TEST_PING_TOTAL_CONN"
+	MatrixTotalRTTPing  SlaveRequestMatrixType = "TEST_PING_TOTAL_RTT"
+	MatrixSDRTT         SlaveRequestMatrixType = "TEST_PING_SD_RTT"
+	MatrixSDHTTP        SlaveRequestMatrixType = "TEST_PING_SD_CONN"
+	MatrixHTTPCode      SlaveRequestMatrixType = "TEST_HTTP_CODE"
+	MatrixPacketLoss    SlaveRequestMatrixType = "TEST_PING_PACKET_LOSS"
+	MatrixHijack        SlaveRequestMatrixType = "TEST_HIJACK_DETECTION"
+	MatrixSleep         SlaveRequestMatrixType = "DEBUG_SLEEP"
 
 	MatrixInvalid SlaveRequestMatrixType = "INVALID"
 )
@@ -26,9 +39,13 @@ func (srmt *SlaveRequestMatrixType) Valid() bool {
 
 	switch *srmt {
 	case MatrixAverageSpeed, MatrixMaxSpeed, MatrixPerSecondSpeed,
+		MatrixAverageUploadSpeed, MatrixMaxUploadSpeed, MatrixPerSecondUploadSpeed,
 		MatrixUDPType,
 		MatrixInboundGeoIP, MatrixOutboundGeoIP,
-		MatrixScriptTest, MatrixHTTPPing, MatrixRTTPing:
+		MatrixScriptTest, MatrixHTTPPing, MatrixRTTPing,
+		MatrixMAXRTTPing, MatrixTotalHTTPPing, MatrixTotalRTTPing,
+		MatrixSDRTT, MatrixSDHTTP, MatrixHTTPCode, MatrixPacketLoss,
+		MatrixHijack, MatrixSleep:
 		return true
 	}
 
