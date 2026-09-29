@@ -33,6 +33,8 @@ Challenge = base64url(h.digest())                 // 保留 padding
 > **陷阱 1（Vendor 字段）**：后端签名前会克隆请求，而上游的 `Clone()` 不复制 `Vendor` 字段——**参与签名的 JSON 中 `Vendor` 永远是空串 `""`**（实际发送的请求里 `Vendor` 照常填 `"Clash"`）。两端行为一致，但控制端自行实现签名时必须照此处理，否则验签失败。
 >
 > **陷阱 2（HTML 转义）**：Go 的 JSON 序列化会把字符串中的 `<` `>` `&` 转义为 `\u003c` 等，其余字符按 UTF-8 原样输出。非 Go 客户端若签名不一致，优先检查这里；让节点配置（Payload）中避免这三个字符可绕开。
+>
+> **陷阱 3（空 RandomSequence）**：`ApiVersion` 为 0 或 1 且 `RandomSequence` 为空时，签名 JSON 中的 `Scripts` 与 `Nodes` 恒为 `[]`（fulltclash 兼容，该行为将弃用）。实际执行仍使用请求里的节点和脚本。控制端应总是填写非空的 `RandomSequence`。
 
 ### 2.2 签名字段顺序（序列化模板）
 
@@ -61,6 +63,12 @@ def sign(req: dict, token: str, buildtoken: str = "MIAOKO4|580JxAo049R|GEnERAl|1
     req = dict(req)
     req["Challenge"] = ""
     req["Vendor"] = ""  # 上游 Clone() 不复制 Vendor，签名时恒为空串（发送的请求里照填 "Clash"）
+    version = (req.get("Configs") or {}).get("ApiVersion") or 0
+    if version in (0, 1) and not req.get("RandomSequence"):
+        configs = dict(req.get("Configs") or {})
+        configs["Scripts"] = []
+        req["Configs"] = configs
+        req["Nodes"] = []
     # 字段插入顺序必须与 2.2 模板一致
     payload = json.dumps(req, separators=(",", ":"), ensure_ascii=False)
     tokens = [token] + [t or "SOME_TOKEN" for t in buildtoken.strip().split("|")]

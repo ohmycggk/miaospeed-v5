@@ -112,7 +112,14 @@ func SignRequest(token string, req *interfaces.SlaveRequest) string {
 
 	switch req.Configs.ApiVersion {
 	case interfaces.ApiV0, interfaces.ApiV1:
-		return hashMiaoSpeed(token, marshalTrimmed(legacyFrom(req)))
+		legacy := legacyFrom(req)
+		if req.RandomSequence == "" {
+			// fulltclash Premium compatibility; fulltclash is being deprecated.
+			DWarn("MiaoServer compatibility deprecation: this change will be deprecated in future versions. Please upgrade your client version.")
+			legacy.Configs.Scripts = make([]interfaces.Script, 0)
+			legacy.Nodes = make([]interfaces.SlaveRequestNode, 0)
+		}
+		return hashMiaoSpeed(token, marshalTrimmed(legacy))
 	case interfaces.ApiV2:
 		legacy := legacyFrom(req)
 		return hashMiaoSpeed(token, marshalTrimmed(v2Request{

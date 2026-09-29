@@ -1,12 +1,14 @@
 package service
 
 import (
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"strings"
 
 	"github.com/gorilla/websocket"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/miaokobot/miaospeed/interfaces"
 	"github.com/miaokobot/miaospeed/preconfigs"
 	"github.com/miaokobot/miaospeed/utils"
@@ -89,7 +91,15 @@ func InitServer() {
 			defer cancel()
 			for {
 				sr := interfaces.SlaveRequest{}
-				err := conn.ReadJSON(&sr)
+				_, reader, err := conn.NextReader()
+				if err == nil {
+					// unsafe, ensure jsoniter package receives frequently security updates.
+					err = jsoniter.NewDecoder(reader).Decode(&sr)
+					if err == io.EOF {
+						// One value is expected in the message.
+						err = io.ErrUnexpectedEOF
+					}
+				}
 				if err != nil {
 					if !strings.Contains(err.Error(), "EOF") && !strings.Contains(err.Error(), "reset by peer") {
 						utils.DErrorf("MiaoServer Test | Task receiving error, error=%s", err.Error())

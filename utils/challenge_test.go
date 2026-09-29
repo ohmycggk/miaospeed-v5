@@ -49,6 +49,43 @@ func TestSignRequestV1IgnoresUploadFields(t *testing.T) {
 	}
 }
 
+func TestSignRequestV1EmptyRandomSequenceClearsNodesAndScripts(t *testing.T) {
+	a := sampleRequest()
+	a.RandomSequence = ""
+	a.Configs.ApiVersion = interfaces.ApiV1
+	a.Configs.Scripts = []interfaces.Script{{ID: "s", Content: "x"}}
+
+	b := sampleRequest()
+	b.RandomSequence = ""
+	b.Configs.ApiVersion = interfaces.ApiV1
+	b.Nodes = []interfaces.SlaveRequestNode{{Name: "other", Payload: "q"}}
+
+	if SignRequest("token", a) != SignRequest("token", b) {
+		t.Fatal("empty RandomSequence must ignore nodes and scripts in the signature")
+	}
+
+	legacy := legacyFrom(a)
+	legacy.Configs.Scripts = make([]interfaces.Script, 0)
+	legacy.Nodes = make([]interfaces.SlaveRequestNode, 0)
+	if hashMiaoSpeed("token", marshalTrimmed(legacy)) != SignRequest("token", a) {
+		t.Fatal("v1 empty sequence signature does not match the cleared payload")
+	}
+	if len(a.Nodes) != 1 || a.Nodes[0].Name != "n" || len(a.Configs.Scripts) != 1 {
+		t.Fatal("signing must not clear nodes or scripts on the original request")
+	}
+}
+
+func TestSignRequestV1NonEmptyRandomSequenceIncludesNodes(t *testing.T) {
+	a := sampleRequest()
+	a.Configs.ApiVersion = interfaces.ApiV1
+	b := sampleRequest()
+	b.Configs.ApiVersion = interfaces.ApiV1
+	b.Nodes = []interfaces.SlaveRequestNode{{Name: "other", Payload: "q"}}
+	if SignRequest("token", a) == SignRequest("token", b) {
+		t.Fatal("non-empty RandomSequence must include nodes in the signature")
+	}
+}
+
 func TestSignRequestV3IncludesUploadFields(t *testing.T) {
 	req := sampleRequest()
 	req.Configs.ApiVersion = interfaces.ApiV3
