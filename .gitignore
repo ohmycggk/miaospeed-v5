@@ -21,6 +21,7 @@ config.yaml
 !*/embeded/predefined.js
 !*/embeded/default_geoip.js
 !*/embeded/default_ip.js
+!*/embeded/BUILDTOKEN.key
 
 # intermediates
 emojis

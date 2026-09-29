@@ -48,6 +48,14 @@ func InitServer() {
 			}
 			defer conn.Close()
 
+			if !utils.GCFG.ValidateWSPath(r.URL.Path) {
+				_ = conn.WriteJSON(&interfaces.SlaveResponse{
+					Error: "invalid websocket path",
+				})
+				utils.DWarnf("MiaoServer Test | websocket path error, path=%s", r.URL.Path)
+				return
+			}
+
 			var poll *taskpoll.TaskPollController
 
 			batches := structs.NewAsyncMap[string, bool]()

@@ -6,14 +6,14 @@
 
 ## 1. 通信模型
 
-- 通道：**WebSocket**，端点接受**任意路径**的 Upgrade 请求，即 `ws://<host>:8080/`（启用 `-mtls` 时为 `wss://`）。
+- 通道：**WebSocket**。未设置 `-path` 时接受**任意路径**的 Upgrade 请求，即 `ws://<host>:9966/`（启用 `-mtls` 时为 `wss://`）。设置 `-path koipy` 后只接受 `/koipy`。
 - 消息：全部为**一条 JSON 文本帧**。控制端每下发一个任务发送一个 `SlaveRequest`；后端回推若干条 `SlaveResponse`。
 - 同一连接可连续下发多个任务；**连接断开时，该连接上所有未完成任务会被取消**。
 - 普通 HTTP 请求访问端口会返回 `400 Bad Request`，属正常现象。
 
 ## 2. 鉴权与签名
 
-后端启动时通过 `-token` 设置「启动TOKEN」；构建时固化「编译TOKEN」（Docker 构建经 secret `BUILDTOKEN` 注入，默认占位值 `miaospeed|docker`）。
+后端启动时通过 `-token` 设置「启动TOKEN」；构建时固化「编译TOKEN」（默认 `MIAOKO4|580JxAo049R|GEnERAl|1X571R930|T0kEN`，Docker 构建可用 secret `BUILDTOKEN` 覆盖）。
 
 ### 2.1 签名算法（aws-v4 风格链式 SHA512）
 
@@ -57,7 +57,7 @@ Challenge = base64url(h.digest())                 // 保留 padding
 ```python
 import json, hashlib, base64
 
-def sign(req: dict, token: str, buildtoken: str = "miaospeed|docker") -> str:
+def sign(req: dict, token: str, buildtoken: str = "MIAOKO4|580JxAo049R|GEnERAl|1X571R930|T0kEN") -> str:
     req = dict(req)
     req["Challenge"] = ""
     req["Vendor"] = ""  # 上游 Clone() 不复制 Vendor，签名时恒为空串（发送的请求里照填 "Clash"）
@@ -180,7 +180,7 @@ GeoIP 查询优先走 `-mmdb` 本地库；未配置时使用内置脚本查询 i
 
 | 场景 | 载荷 |
 | --- | --- |
-| 每个节点测完 | `{"ID":"<任务ID>","MiaoSpeedVersion":"4.3.2","Progress":{"Index":0,"Record":{...},"Queuing":2}}` |
+| 每个节点测完 | `{"ID":"<任务ID>","MiaoSpeedVersion":"5.0.0","Progress":{"Index":0,"Record":{...},"Queuing":2}}` |
 | 全部完成 | `{"ID":"...","Result":{"Request":{...},"Results":[...]}}` |
 | 鉴权/白名单/禁用失败 | `{"ID":"","Error":"cannot verify the request, please check your token"}`，随后**服务端关闭连接** |
 
@@ -226,6 +226,6 @@ GeoIP 查询优先走 `-mmdb` 本地库；未配置时使用内置脚本查询 i
 成功响应序列：
 
 ```
-<- {"ID":"task-001","MiaoSpeedVersion":"4.3.2","Progress":{"Index":0,"Record":{...},"Queuing":0}}
-<- {"ID":"task-001","MiaoSpeedVersion":"4.3.2","Result":{"Request":{...},"Results":[{...}]}}
+<- {"ID":"task-001","MiaoSpeedVersion":"5.0.0","Progress":{"Index":0,"Record":{...},"Queuing":0}}
+<- {"ID":"task-001","MiaoSpeedVersion":"5.0.0","Result":{"Request":{...},"Results":[{...}]}}
 ```

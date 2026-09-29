@@ -27,39 +27,52 @@ ghcr.io/ohmycggk/miaospeed
 docker run -d \
   --name miaospeed \
   --restart unless-stopped \
-  -p 8080:8080 \
-  -e TOKEN=请换成强随机串 \
+  -p 9966:9966 \
+  -e MIAOSPEED_MTLS=1 \
+  -e MIAOSPEED_TOKEN=请换成强随机串 \
   ghcr.io/ohmycggk/miaospeed:latest
 ```
 
-> `TOKEN` 是「启动TOKEN」，用于对请求结构体做 SHA512 签名验证（见 README「对接」一节）。
+> `MIAOSPEED_TOKEN`（兼容 `TOKEN`）是「启动TOKEN」，用于对请求结构体做 SHA512 签名验证（见 README「对接」一节）。
 > 不设置 `-token` 则任何能连到端口的人都能下发测速任务，**公网部署务必设置**。
+> 未指定监听地址时，容器内默认监听 `0.0.0.0:9966`。
 
 等效的完整命令行写法（显式参数优先于环境变量）：
 
 ```bash
-docker run -d --name miaospeed --restart unless-stopped -p 8080:8080 \
+docker run -d --name miaospeed --restart unless-stopped -p 9966:9966 \
   ghcr.io/ohmycggk/miaospeed:latest \
-  server -bind 0.0.0.0:8080 -token 请换成强随机串
+  server -bind 0.0.0.0:9966 -token 请换成强随机串 -mtls
 ```
 
 ### 1.3 docker-compose
+
+可直接替换现有 `moshaoli688/miaospeed` compose 里的镜像名。容器内默认监听 `9966`，`MIAOSPEED_*` 会转成对应的启动参数：
 
 ```yaml
 services:
   miaospeed:
     image: ghcr.io/ohmycggk/miaospeed:latest
     container_name: miaospeed
-    restart: unless-stopped
+    restart: always
     ports:
-      - "8080:8080"
+      - "9966:9966"
     environment:
-      TOKEN: 请换成强随机串
-      # BIND: 0.0.0.0:8080
+      TZ: Asia/Shanghai
+      MIAOSPEED_META: "1"
+      MIAOSPEED_MTLS: "1"
+      MIAOSPEED_TOKEN: 请换成强随机串
+      MIAOSPEED_CONNTHREAD: "16"
+    mem_limit: 1024m
+    logging:
+      driver: json-file
+      options:
+        max-size: "200m"
+        max-file: "3"
     # 可选：挂载本地 MaxMind mmdb 以离线查询 GeoIP
     # volumes:
     #   - ./mmdb:/data:ro
-    # command: ["server", "-mmdb", "/data/GeoLite2-City.mmdb"]
+    # environment 中再加 MIAOSPEED_MMDB: /data/GeoLite2-City.mmdb
 ```
 
 启动：`docker compose up -d`
@@ -78,30 +91,49 @@ echo $GITHUB_PAT | docker login ghcr.io -u 你的GitHub用户名 --password-stdi
 
 ### 2.1 容器环境变量
 
+`MIAOSPEED_*` 优先于同名短变量。已经写在命令行里的参数不会被环境变量覆盖。布尔值接受 `1`、`true`、`yes`、`on`。
+
 | 变量 | 对应参数 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `TOKEN` | `-token` | 空 | 请求签名用的启动TOKEN |
-| `BIND` | `-bind` | `0.0.0.0:8080` | 监听地址，也支持 unix socket（如 `/tmp/miao.sock`） |
+| `MIAOSPEED_TOKEN` / `TOKEN` | `-token` | 空 | 请求签名用的启动TOKEN |
+| `MIAOSPEED_BIND` / `BIND` | `-bind` | `0.0.0.0:9966` | 监听地址，也支持 unix socket（如 `/tmp/miao.sock`） |
+| `MIAOSPEED_MTLS` | `-mtls` | 关 | 为 `1` 时启用内置证书的 TLS |
+| `MIAOSPEED_CONNTHREAD` | `-connthread` | `64` | 连通性任务并行线程数 |
+| `MIAOSPEED_NOSPEED` | `-nospeed` | 关 | 为 `1` 时拒绝测速 |
+| `MIAOSPEED_VERBOSE` | `-verbose` | 关 | 为 `1` 时输出系统日志 |
+| `MIAOSPEED_PAUSESECOND` | `-pausesecond` | `0` | 每次测速后暂停的秒数 |
+| `MIAOSPEED_WHITELIST` | `-whitelist` | 空 | bot id 白名单，逗号或 `\|` 分隔 |
+| `MIAOSPEED_PATH` | `-path` | 空 | WebSocket 路径；空则接受任意路径 |
+| `MIAOSPEED_SPEEDLIMIT` | `-speedlimit` | `0` | 限速，单位 **MB/s**（入口会换成字节/秒再传给参数） |
+| `MIAOSPEED_MMDB` | `-mmdb` | 空 | mmdb 文件路径。值为 `1` 时忽略并打日志 |
+| `MIAOSPEED_SERVERPUBLICKEY` | `-serverpublickey` | 空 | 覆盖内置 TLS 证书的 PEM 路径 |
+| `MIAOSPEED_SERVERPRIVATEKEY` | `-serverprivatekey` | 空 | 覆盖内置 TLS 私钥的 PEM 路径 |
+| `MIAOSPEED_META` | 无 | 空 | 接受该变量。本镜像已经使用 mihomo，不会再切换二进制 |
+| `TZ` | 无 | `Asia/Shanghai` | 容器时区 |
 
 ### 2.2 `server` 子命令全部参数
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `-bind` | 空 | 监听地址，`0.0.0.0:8080` 或 unix socket 路径 |
+| `-bind` | 空（容器入口默认为 `0.0.0.0:9966`） | 监听地址，`0.0.0.0:9966` 或 unix socket 路径 |
 | `-token` | 空 | 启动TOKEN，用于请求签名校验 |
+| `-path` | 空 | WebSocket 路径。`koipy` 与 `/koipy` 都会变成 `/koipy`，设置后路径必须完全一致。留空则接受任意路径 |
 | `-connthread` | `64` | 普通连通性任务的并行线程数 |
-| `-speedlimit` | `0` | 测速限速（字节/秒），0 为不限速 |
+| `-speedlimit` | `0` | 测速限速（字节/秒），0 为不限速。环境变量 `MIAOSPEED_SPEEDLIMIT` 的单位是 MB/s |
 | `-pausesecond` | `0` | 每次测速任务后暂停的秒数（限流保护） |
 | `-mtls` | `false` | 启用内嵌自签证书的 TLS（wss） |
 | `-nospeed` | `false` | 拒绝所有测速请求（只做连通性/流媒体测试） |
 | `-mmdb` | 空 | 本地 MaxMind mmdb 路径，多个用英文逗号分隔，设置后 GeoIP 优先走本地库 |
-| `-whitelist` | 空 | bot id 白名单，逗号分隔，如 `1111,2222` |
+| `-whitelist` | 空 | bot id 白名单，逗号或 `\|` 分隔，如 `1111,2222` 或 `111111\|22222\|333333` |
+| `-serverpublickey` | 空 | 覆盖内置 TLS 证书的 PEM 文件。读失败、内容为空或与私钥不配对则退出 |
+| `-serverprivatekey` | 空 | 覆盖内置 TLS 私钥的 PEM 文件，需与 `-serverpublickey` 同时给出 |
+| `-verbose` | `false` | 输出系统日志 |
 
 示例（限速 100MB/s、只测连通性、带白名单）：
 
 ```bash
-docker run -d --name miaospeed -p 8080:8080 ghcr.io/ohmycggk/miaospeed:latest \
-  server -bind 0.0.0.0:8080 -token xxx -speedlimit 104857600 -nospeed -whitelist 1111,2222
+docker run -d --name miaospeed -p 9966:9966 ghcr.io/ohmycggk/miaospeed:latest \
+  server -bind 0.0.0.0:9966 -token xxx -speedlimit 104857600 -nospeed -whitelist 1111,2222
 ```
 
 ## 3. 验证与对接
@@ -111,18 +143,18 @@ docker run -d --name miaospeed -p 8080:8080 ghcr.io/ohmycggk/miaospeed:latest \
 miaospeed 是 WebSocket 服务，没有 HTTP 健康检查端点。用普通 HTTP 访问会返回 `400 Bad Request`，**这是正常现象**，说明端口已存活：
 
 ```bash
-curl -i http://127.0.0.1:8080/
+curl -i http://127.0.0.1:9966/
 # HTTP/1.1 400 Bad Request
 ```
 
-WS 端点接受任意路径的升级请求，对接地址为 `ws://<IP>:8080/`（启用 `-mtls` 时为 `wss://`）。
+未设置 `-path` 时，WS 端点接受任意路径的升级请求，对接地址为 `ws://<IP>:9966/`（启用 `-mtls` 时为 `wss://`）。设置 `-path koipy` 后只接受 `ws://<IP>:9966/koipy`。
 
 ### 3.2 客户端对接
 
 控制协议的完整细节（请求结构、签名算法、矩阵清单、响应格式）见 [API.md](API.md)。对接流程概要（构建请求结构体 → 签名 → 通过 WS 发送 → 接收结果）见 [README.md](README.md)「如何对接」一节。签名需要两个 TOKEN：
 
-- **启动TOKEN**：部署时通过 `-token` / `TOKEN` 设置；
-- **编译TOKEN**：构建镜像时通过 GitHub Secret `BUILDTOKEN` 注入（未设置则使用占位值 `miaospeed|docker`）。若你的客户端需要校验编译TOKEN，请在仓库 Settings → Secrets and variables → Actions 中创建 `BUILDTOKEN`（多段用 `|` 分隔），重新触发构建后使用相同值对接。
+- **启动TOKEN**：部署时通过 `-token` / `MIAOSPEED_TOKEN` / `TOKEN` 设置；
+- **编译TOKEN**：默认是 `MIAOKO4|580JxAo049R|GEnERAl|1X571R930|T0kEN`，与 koipy 和 AirportR 预编译二进制一致。只有构建镜像时注入了 GitHub Secret `BUILDTOKEN`（或 `docker build --secret id=buildtoken`）才会覆盖它。
 
 ## 4. 运维
 
@@ -153,11 +185,11 @@ docker stats miaospeed          # 观察带宽/CPU/内存
 
 ```
 speed.example.com {
-    reverse_proxy 127.0.0.1:8080
+    reverse_proxy 127.0.0.1:9966
 }
 ```
 
-此时容器端口只需绑定到本地：`-p 127.0.0.1:8080:8080`。
+此时容器端口只需绑定到本地：`-p 127.0.0.1:9966:9966`。
 
 ## 5. 自行构建镜像
 

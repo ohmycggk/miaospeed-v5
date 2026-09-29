@@ -1,4 +1,4 @@
-# MiaoSpeed 4.0
+# MiaoSpeed 5.0.0
 
 ---
 
@@ -12,11 +12,13 @@
 
 ```bash
 docker run -d --name miaospeed --restart unless-stopped \
-  -p 8080:8080 -e TOKEN=你的token \
+  -p 9966:9966 \
+  -e MIAOSPEED_MTLS=1 \
+  -e MIAOSPEED_TOKEN=你的token \
   ghcr.io/ohmycggk/miaospeed:latest
 ```
 
-镜像构建期会自动生成所需的证书与默认脚本，开箱即用。完整部署说明见 [DEPLOY.md](DEPLOY.md)。
+也兼容 `MIAOSPEED_*` 环境变量的现有 Compose，容器内默认监听 `9966`。镜像构建期会自动生成所需的证书与默认脚本。完整部署说明见 [DEPLOY.md](DEPLOY.md)。
 
 ### 二进制
 
@@ -26,7 +28,7 @@ docker run -d --name miaospeed --restart unless-stopped \
 
 由于 miaospeed 中含有部分证书与脚本并未开源，您需要补齐以下文件以成功编译:
 
-1. `./utils/embeded/BUILDTOKEN.key`: 这是 `编译TOKEN`，它用于签名 miaospeed request 的结构体，以防止您的客户端使用不合规的 miaospeed 造成数据不真实的纠纷。您可以随便定义它，例如: `1111|2222|33333333`，不同段用 `|` 切开。
+1. `./utils/embeded/BUILDTOKEN.key`: 这是 `编译TOKEN`，它用于签名 miaospeed request 的结构体。仓库内默认值是 `MIAOKO4|580JxAo049R|GEnERAl|1X571R930|T0kEN`，与 koipy 默认编译 TOKEN 一致。不同段用 `|` 切开；若要换成自己的值，改这个文件，或在构建镜像时用 secret `buildtoken` 覆盖。
 2. `./preconfigs/embeded/miaokoCA/miaoko.crt`: 当 `-mtls` 启用时，miaospeed 会读取这里的证书让客户端做 TLS 验证。
 3. `./preconfigs/embeded/miaokoCA/miaoko.key`: 同上，这是私钥。(对于这两个您可以自己用 openssl 签一个证书，但它不能用于 miaoko。)
 4. `./preconfigs/embeded/ca-certificates.crt`: miaospeed 自带的根证书集，防止有恶意用户修改系统更证书以作假 TLS RTT。（对于 debian 用户，您可以在安装 `ca-certificates` 包后，在 `/etc/ssl/certs/ca-certificates.crt` 获取这个文件）

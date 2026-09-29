@@ -13,7 +13,7 @@ COPY . .
 # Generate functional equivalents in-tree:
 #   - root CA bundle      -> reuse the builder image's system bundle
 #   - miaoko self-signed  -> fresh throwaway self-signed cert (used by -mtls)
-#   - BUILDTOKEN.key      -> from build secret `buildtoken`, fallback placeholder
+#   - BUILDTOKEN.key      -> from build secret `buildtoken`, else the koipy default
 #   - default js scripts  -> committed in engine/embeded/
 RUN set -e; \
     cp /etc/ssl/certs/ca-certificates.crt preconfigs/embeded/ca-certificates.crt; \
@@ -29,7 +29,7 @@ RUN --mount=type=secret,id=buildtoken,required=false \
     if [ -s /run/secrets/buildtoken ]; then \
         cp /run/secrets/buildtoken utils/embeded/BUILDTOKEN.key; \
     else \
-        echo "miaospeed|docker" > utils/embeded/BUILDTOKEN.key; \
+        printf '%s\n' 'MIAOKO4|580JxAo049R|GEnERAl|1X571R930|T0kEN' > utils/embeded/BUILDTOKEN.key; \
     fi
 
 ARG TARGETOS=linux
@@ -50,7 +50,8 @@ RUN apk add --no-cache ca-certificates tzdata
 COPY --from=build /out/miaospeed /usr/local/bin/miaospeed
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-EXPOSE 8080
+ENV TZ=Asia/Shanghai
+EXPOSE 9966
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["server"]
