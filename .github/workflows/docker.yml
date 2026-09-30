@@ -52,6 +52,12 @@ jobs:
             type=sha,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Prepare embed secrets
+        run: |
+          mkdir -p "${{ runner.temp }}/embed"
+          printf '%s\n' "${{ secrets.MIAOSPEED_CRT }}" > "${{ runner.temp }}/embed/miaoko.crt"
+          printf '%s\n' "${{ secrets.MIAOSPEED_KEY }}" > "${{ runner.temp }}/embed/miaoko.key"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -66,5 +72,8 @@ jobs:
             BRAND=${{ github.event.repository.name }}
           secrets: |
             buildtoken=${{ secrets.BUILDTOKEN }}
+          secret-files: |
+            miaospeed_crt=${{ runner.temp }}/embed/miaoko.crt
+            miaospeed_key=${{ runner.temp }}/embed/miaoko.key
           cache-from: type=gha
           cache-to: type=gha,mode=max

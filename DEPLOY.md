@@ -208,9 +208,14 @@ cd miaospeed
 docker build -t miaospeed:local .
 # 注入编译TOKEN（可选）
 docker build --secret id=buildtoken,src=./BUILDTOKEN.key -t miaospeed:local .
+# 注入 miaoko TLS 证书与私钥（须成对提供；都不提供则构建期自签）
+docker build \
+  --secret id=miaospeed_crt,src=./miaoko.crt \
+  --secret id=miaospeed_key,src=./miaoko.key \
+  -t miaospeed:local .
 ```
 
-Dockerfile 会在构建期自动生成所需的嵌入文件（CA 根证书复用构建镜像的系统证书包、自签 miaoko 证书、默认 JS 脚本），无需手工准备。
+Dockerfile 会在构建期自动生成所需的嵌入文件（CA 根证书复用构建镜像的系统证书包、自签 miaoko 证书、默认 JS 脚本），无需手工准备。若同时传入 secret `miaospeed_crt` 与 `miaospeed_key`，则用这对材料替换自签证书；只传其中一个会让构建失败。
 
 ## 6. CI/CD 说明
 
@@ -218,4 +223,4 @@ Dockerfile 会在构建期自动生成所需的嵌入文件（CA 根证书复用
 
 - 触发：push 到 `master`、推送 `v*` 标签、手动 `workflow_dispatch`；PR 仅构建不推送。
 - 推送目标：`ghcr.io/ohmycggk/miaospeed`，使用 `GITHUB_TOKEN` 认证，无需额外凭证。
-- 可选 Secret：`BUILDTOKEN`（编译TOKEN，见 3.2）。
+- 可选 Secret：`BUILDTOKEN`（编译TOKEN，见 3.2）；`MIAOSPEED_CRT` 与 `MIAOSPEED_KEY`（`-mtls` 使用的证书和私钥，须成对配置，未配置时构建期自签）。

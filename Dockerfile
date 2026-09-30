@@ -12,16 +12,33 @@ COPY . .
 # miaospeed embeds a few private assets at compile time (see README).
 # Generate functional equivalents in-tree:
 #   - root CA bundle      -> reuse the builder image's system bundle
-#   - miaoko self-signed  -> fresh throwaway self-signed cert (used by -mtls)
+#   - miaoko TLS material -> secrets miaospeed_crt + miaospeed_key
+#                            (GitHub: MIAOSPEED_CRT / MIAOSPEED_KEY);
+#                            both empty falls back to a throwaway self-signed cert
 #   - BUILDTOKEN.key      -> from build secret `buildtoken`, else the koipy default
 #   - default js scripts  -> committed in engine/embeded/
-RUN set -e; \
+RUN --mount=type=secret,id=miaospeed_crt,required=false \
+    --mount=type=secret,id=miaospeed_key,required=false \
+    set -e; \
     cp /etc/ssl/certs/ca-certificates.crt preconfigs/embeded/ca-certificates.crt; \
     mkdir -p preconfigs/embeded/miaokoCA; \
-    openssl req -x509 -newkey rsa:2048 -nodes \
-        -keyout preconfigs/embeded/miaokoCA/miaoko.key \
-        -out preconfigs/embeded/miaokoCA/miaoko.crt \
-        -days 3650 -subj "/CN=miaospeed"; \
+    crt=/run/secrets/miaospeed_crt; \
+    key=/run/secrets/miaospeed_key; \
+    crt_body=; key_body=; \
+    if [ -f "$crt" ]; then crt_body=$(tr -d '[:space:]' < "$crt"); fi; \
+    if [ -f "$key" ]; then key_body=$(tr -d '[:space:]' < "$key"); fi; \
+    if [ -n "$crt_body" ] && [ -n "$key_body" ]; then \
+        cp "$crt" preconfigs/embeded/miaokoCA/miaoko.crt; \
+        cp "$key" preconfigs/embeded/miaokoCA/miaoko.key; \
+    elif [ -n "$crt_body" ] || [ -n "$key_body" ]; then \
+        echo "miaospeed_crt and miaospeed_key must be provided together" >&2; \
+        exit 1; \
+    else \
+        openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout preconfigs/embeded/miaokoCA/miaoko.key \
+            -out preconfigs/embeded/miaokoCA/miaoko.crt \
+            -days 3650 -subj "/CN=miaospeed"; \
+    fi; \
     chmod 600 preconfigs/embeded/miaokoCA/miaoko.key
 
 RUN --mount=type=secret,id=buildtoken,required=false \
