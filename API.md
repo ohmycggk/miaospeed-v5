@@ -109,7 +109,27 @@ cipher: aes-128-gcm
 password: pass
 ```
 
-支持的 `type` 与内核（mihomo，nw 定制版）一致：`ss`、`ssr`、`vmess`、`vless`、`trojan`、`hysteria`、`hysteria2`、`tuic`、`snell`、`socks5`、`http`、`wireguard`、`ssh`、`mieru`、`anytls`、`sudoku`、`masque`、`trusttunnel`、`shadowquic`、`openvpn`、`tailscale`、`zerotier`、`easytier`、`gost-relay`、`nowhere`。
+支持的 `type` 与内核（clash-meta-nw，mihomo 定制版）一致：`ss`、`ssr`、`vmess`、`vless`、`trojan`、`hysteria`、`hysteria2`、`tuic`、`snell`、`socks5`、`http`、`wireguard`、`ssh`、`mieru`、`anytls`、`sudoku`、`masque`、`trusttunnel`、`shadowquic`、`openvpn`、`tailscale`、`zerotier`、`easytier`、`gost-relay`、`nowhere`。
+
+`nowhere` 有两代协议栈，由 `alpn` 选择：省略 `alpn`（或 `alpn: [nw3]`）为 **Nowhere 3**，`ProxyInfo.Type` 报 `Nowhere3`；`alpn: [nw2]` 为 **Nowhere 2 兼容栈**，`ProxyInfo.Type` 报 `Nowhere2`。两者不共享握手。
+
+```yaml
+# Nowhere 3（默认）：单载体，TLS 1.3 + ALPN nw3
+type: nowhere
+server: 1.2.3.4
+port: 443
+password: 0123456789abcdef0123456789abcdef   # 恰好 32 位小写十六进制
+net: tcp                                      # tcp（默认，TLS over TCP）或 udp（QUIC）
+udp: true
+# morph: true                                # Nowhere 3 默认开启；对端必须一致
+# congestion-controller: bbr                 # net: udp 时有效
+# cwnd: 32                                   # net: udp 时有效
+# sni: example.com                           # 默认取 server
+# pin: <leaf SHA-256 hex>                    # 证书指纹，overrides 链式校验
+# skip-cert-verify: false
+```
+
+Nowhere 2 专属字段（`up`/`down`/`mux`/`pool`/`prewarm-on-start`/`max-concurrent-dials`/`warm-backoff-initial`/`warm-backoff-max`/`fingerprint`/`client-fingerprint`/`ech-opts`）在 Nowhere 3 下会被内核直接拒绝，节点构建失败；需要这些字段时改用 `alpn: [nw2]`。
 
 ### 3.2 `Configs` 任务配置
 

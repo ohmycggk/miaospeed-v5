@@ -32,6 +32,8 @@ const (
 	EasyTier    ProxyType = "EasyTier"
 	GostRelay   ProxyType = "GostRelay"
 	Nowhere     ProxyType = "Nowhere"
+	Nowhere2    ProxyType = "Nowhere2"
+	Nowhere3    ProxyType = "Nowhere3"
 
 	Direct      ProxyType = "Direct"
 	Reject      ProxyType = "Reject"
@@ -55,7 +57,7 @@ var AllProxyTypes = []ProxyType{
 	Vless, Hysteria,
 	Hysteria2, WireGuard, Tuic, Ssh, Mieru, AnyTLS, Sudoku, Masque,
 	TrustTunnel, ShadowQuic, OpenVPN, Tailscale, ZeroTier, EasyTier,
-	GostRelay, Nowhere,
+	GostRelay, Nowhere, Nowhere2, Nowhere3,
 	Direct, Reject, RejectDrop, Compatible, Pass, PassRule, Rematch, Dns,
 	Relay, Selector, Fallback, URLTest, LoadBalance,
 }

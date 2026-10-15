@@ -152,7 +152,7 @@ require (
 	google.golang.org/protobuf v1.34.2 // indirect
 )
 
-// Core: ohmycggk/mihomo fork, branch feat/nowhere2 (commit 9f2c7e0d, based on upstream v1.19.31)
-replace github.com/metacubex/mihomo => github.com/ohmycggk/mihomo v1.19.31-nw.1
+// Core: ohmycggk/clash-meta-nw v3.0.0 (Nowhere 3 by default, Nowhere 2 via alpn: [nw2])
+replace github.com/metacubex/mihomo => ./third_party/clash-meta-nw
 
 replace google.golang.org/protobuf => github.com/metacubex/protobuf-go v0.0.0-20260306035419-7ceee0674686

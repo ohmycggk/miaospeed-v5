@@ -18,6 +18,10 @@ type Clash struct {
 	proxyName  string
 	proxyInfo  string
 	dnsServers []string
+	// nowhereType is the Nowhere stack the current payload selects (Nowhere3 or
+	// Nowhere2). The core reports both stacks as constant.Nowhere, so the
+	// payload's ALPN decides the miaospeed-level type. Empty for other proxies.
+	nowhereType interfaces.ProxyType
 }
 
 func setupIPv6() {
@@ -63,11 +67,13 @@ func (c *Clash) rebuildProxy() {
 	}
 	if strings.TrimSpace(c.proxyInfo) == "" {
 		c.proxy = nil
+		c.nowhereType = ""
 		return
 	}
-	proxy := extractFirstProxyWithDNS(c.proxyName, c.proxyInfo, c.dnsServers)
+	proxy, nowhereType := extractFirstProxyWithDNS(c.proxyName, c.proxyInfo, c.dnsServers)
 	if proxy != nil {
 		c.proxy = proxy
+		c.nowhereType = nowhereType
 	}
 }
 
@@ -161,6 +167,19 @@ func (c *Clash) DialUDP(ctx context.Context, url string) (net.PacketConn, error)
 	return c.proxy.ListenPacketContext(ctx, &addr)
 
 }
+
+// proxyTypeOf maps a built proxy to its miaospeed type. The core reports both
+// Nowhere stacks as constant.Nowhere ("Nowhere"); nowhereType carries the stack
+// the payload's ALPN selected (see nowhereProxyType), so a nowhere proxy is
+// reported as Nowhere3 or Nowhere2 instead of the generic Nowhere.
+func proxyTypeOf(proxy constant.Proxy, nowhereType interfaces.ProxyType) interfaces.ProxyType {
+	proxyType := interfaces.Parse(proxy.Type().String())
+	if proxyType == interfaces.Nowhere && nowhereType != "" {
+		return nowhereType
+	}
+	return proxyType
+}
+
 func (c *Clash) ProxyInfo() interfaces.ProxyInfo {
 	if c == nil || c.proxy == nil {
 		return interfaces.ProxyInfo{}
@@ -169,6 +188,6 @@ func (c *Clash) ProxyInfo() interfaces.ProxyInfo {
 	return interfaces.ProxyInfo{
 		Name:    c.proxy.Name(),
 		Address: c.proxy.Addr(),
-		Type:    interfaces.Parse(c.proxy.Type().String()),
+		Type:    proxyTypeOf(c.proxy, c.nowhereType),
 	}
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/metacubex/mihomo/adapter"
 	"github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/transport/nowhere"
 	"github.com/miaokobot/miaospeed/interfaces"
 	"github.com/miaokobot/miaospeed/utils"
 	vendorlog "github.com/sirupsen/logrus"
@@ -81,15 +82,49 @@ func applyMihomoDNSForProxyServer(payload map[string]any, dnsServers []string) {
 	setStringIfMissing(payload, "servername", server)
 }
 
-func parseProxy(proxyName, proxyPayload string, dnsServers []string) constant.Proxy {
+// nowhereProxyType reports which Nowhere stack a nowhere payload selects, using
+// the core's own ALPN rule (nowhere.SelectNowhereStack): an omitted ALPN or a
+// single nw3 is Nowhere 3, exactly nw2 is the Nowhere 2 compatibility stack.
+// The core rejects every other ALPN at parse time, so a nowhere proxy that
+// builds successfully always resolves here. Non-nowhere payloads return "".
+func nowhereProxyType(payload map[string]any) interfaces.ProxyType {
+	if proxyType, _ := payload["type"].(string); proxyType != "nowhere" {
+		return ""
+	}
+
+	var alpn []string
+	switch v := payload["alpn"].(type) {
+	case []any:
+		for _, item := range v {
+			if name, ok := item.(string); ok {
+				alpn = append(alpn, name)
+			}
+		}
+	case []string:
+		alpn = v
+	case string:
+		alpn = []string{v}
+	}
+
+	nw3, err := nowhere.SelectNowhereStack(alpn)
+	if err != nil {
+		return ""
+	}
+	if nw3 {
+		return interfaces.Nowhere3
+	}
+	return interfaces.Nowhere2
+}
+
+func parseProxy(proxyName, proxyPayload string, dnsServers []string) (constant.Proxy, interfaces.ProxyType) {
 	var payload map[string]any
 	if err := yaml.Unmarshal([]byte(proxyPayload), &payload); err != nil {
 		utils.DLogf("Vendor Parser | Parse clash profile yaml error, error=%v", err.Error())
-		return nil
+		return nil, ""
 	}
 	if payload == nil {
 		utils.DLogf("Vendor Parser | Parse clash profile error, empty payload")
-		return nil
+		return nil, ""
 	}
 	if _, ok := payload["name"]; !ok {
 		payload["name"] = proxyName
@@ -101,19 +136,19 @@ func parseProxy(proxyName, proxyPayload string, dnsServers []string) constant.Pr
 		utils.DLogf("Vendor Parser | Parse clash profile error, error=%v", err.Error())
 	}
 
-	return proxy
+	return proxy, nowhereProxyType(payload)
 }
 
-func extractFirstProxy(proxyName, proxyPayload string) constant.Proxy {
+func extractFirstProxy(proxyName, proxyPayload string) (constant.Proxy, interfaces.ProxyType) {
 	return extractFirstProxyWithDNS(proxyName, proxyPayload, nil)
 }
 
-func extractFirstProxyWithDNS(proxyName, proxyPayload string, dnsServers []string) constant.Proxy {
-	proxy := parseProxy(proxyName, proxyPayload, dnsServers)
+func extractFirstProxyWithDNS(proxyName, proxyPayload string, dnsServers []string) (constant.Proxy, interfaces.ProxyType) {
+	proxy, nowhereType := parseProxy(proxyName, proxyPayload, dnsServers)
 
 	if proxy != nil && interfaces.Parse(proxy.Type().String()) != interfaces.ProxyInvalid {
-		return proxy
+		return proxy, nowhereType
 	}
 
-	return nil
+	return nil, ""
 }

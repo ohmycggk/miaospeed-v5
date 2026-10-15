@@ -5,6 +5,7 @@ FROM golang:1.26-bookworm AS build
 WORKDIR /src
 
 COPY go.mod go.sum ./
+COPY third_party/clash-meta-nw third_party/clash-meta-nw
 RUN go mod download
 
 COPY . .

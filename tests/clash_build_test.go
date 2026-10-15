@@ -111,3 +111,95 @@ udp: true
 		t.Fatalf("expected proxy type %s, got %s", interfaces.TrustTunnel, proxyInfo.Type)
 	}
 }
+
+func TestClashBuild_Nowhere3TCP(t *testing.T) {
+	vendor := buildClashVendor("nowhere3-tcp", `
+name: nowhere3-tcp
+type: nowhere
+server: 1.2.3.4
+port: 443
+password: 0123456789abcdef0123456789abcdef
+udp: true
+`)
+
+	if vendor.Status() != interfaces.VStatusOperational {
+		t.Fatalf("expected status %v, got %v", interfaces.VStatusOperational, vendor.Status())
+	}
+
+	proxyInfo := vendor.ProxyInfo()
+	if proxyInfo.Name != "nowhere3-tcp" {
+		t.Fatalf("expected proxy name nowhere3-tcp, got %s", proxyInfo.Name)
+	}
+	if proxyInfo.Type != interfaces.Nowhere3 {
+		t.Fatalf("expected proxy type %s, got %s", interfaces.Nowhere3, proxyInfo.Type)
+	}
+}
+
+func TestClashBuild_Nowhere3QUIC(t *testing.T) {
+	vendor := buildClashVendor("nowhere3-quic", `
+name: nowhere3-quic
+type: nowhere
+server: 1.2.3.4
+port: 443
+password: 0123456789abcdef0123456789abcdef
+net: udp
+congestion-controller: bbr
+cwnd: 32
+udp: true
+`)
+
+	if vendor.Status() != interfaces.VStatusOperational {
+		t.Fatalf("expected status %v, got %v", interfaces.VStatusOperational, vendor.Status())
+	}
+
+	proxyInfo := vendor.ProxyInfo()
+	if proxyInfo.Name != "nowhere3-quic" {
+		t.Fatalf("expected proxy name nowhere3-quic, got %s", proxyInfo.Name)
+	}
+	if proxyInfo.Type != interfaces.Nowhere3 {
+		t.Fatalf("expected proxy type %s, got %s", interfaces.Nowhere3, proxyInfo.Type)
+	}
+}
+
+func TestClashBuild_Nowhere2Legacy(t *testing.T) {
+	vendor := buildClashVendor("nowhere2", `
+name: nowhere2
+type: nowhere
+server: 1.2.3.4
+port: 443
+password: 0123456789abcdef0123456789abcdef
+alpn:
+  - nw2
+up: udp
+down: udp
+udp: true
+`)
+
+	if vendor.Status() != interfaces.VStatusOperational {
+		t.Fatalf("expected status %v, got %v", interfaces.VStatusOperational, vendor.Status())
+	}
+
+	proxyInfo := vendor.ProxyInfo()
+	if proxyInfo.Name != "nowhere2" {
+		t.Fatalf("expected proxy name nowhere2, got %s", proxyInfo.Name)
+	}
+	if proxyInfo.Type != interfaces.Nowhere2 {
+		t.Fatalf("expected proxy type %s, got %s", interfaces.Nowhere2, proxyInfo.Type)
+	}
+}
+
+func TestClashBuild_Nowhere3RejectsNw2Options(t *testing.T) {
+	vendor := buildClashVendor("nowhere3-invalid", `
+name: nowhere3-invalid
+type: nowhere
+server: 1.2.3.4
+port: 443
+password: 0123456789abcdef0123456789abcdef
+up: udp
+down: udp
+`)
+
+	if vendor.Status() != interfaces.VStatusNotReady {
+		t.Fatalf("expected status %v, got %v", interfaces.VStatusNotReady, vendor.Status())
+	}
+}
