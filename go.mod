@@ -152,7 +152,7 @@ require (
 	google.golang.org/protobuf v1.34.2 // indirect
 )
 
-// Core: ohmycggk/clash-meta-nw v3.0.0 (Nowhere 3 by default, Nowhere 2 via alpn: [nw2])
+// Core: ohmycggk/clash-meta-nw v3.2.0 (Nowhere 3 by default, Nowhere 2 via alpn: [nw2])
 replace github.com/metacubex/mihomo => ./third_party/clash-meta-nw
 
 replace google.golang.org/protobuf => github.com/metacubex/protobuf-go v0.0.0-20260306035419-7ceee0674686
